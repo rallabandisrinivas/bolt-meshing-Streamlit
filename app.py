@@ -60,27 +60,29 @@ def generate_bolt_input(head_diameter, head_thickness, shank_diameter, shank_len
                 node_coordinates.append((x, y, z))
                 node_id += 1
     
-    # Generate nodes for bolt shank
-    for layer in range(num_shank_length_elements + 1):
-        z = -layer * (shank_length / num_shank_length_elements)
+    # Generate nodes for bolt shank - both outer surface and inner points
+    for length_layer in range(num_shank_length_elements + 1):
+        z = -(length_layer * (shank_length / num_shank_length_elements))
         
         for i in range(num_circumferential_elements + 1):
             theta = (i / num_circumferential_elements) * 2 * np.pi
             
-            # Create nodes for shank (only on the surface for visualization simplicity)
-            x = shank_radius * np.cos(theta)
-            y = shank_radius * np.sin(theta)
-            
-            output.write(f"{node_id}, {x:.3f}, {y:.3f}, {z:.3f}\n")
-            nodes[(layer + num_head_thickness_elements, i, 0)] = node_id
-            node_coordinates.append((x, y, z))
-            node_id += 1
+            # Create nodes for shank - including internal points
+            for r in range(int(shank_radius / element_size) + 1):
+                radius = r * element_size if r < int(shank_radius / element_size) else shank_radius
+                x = radius * np.cos(theta)
+                y = radius * np.sin(theta)
+                
+                output.write(f"{node_id}, {x:.3f}, {y:.3f}, {z:.3f}\n")
+                nodes[('shank', length_layer, i, r)] = node_id
+                node_coordinates.append((x, y, z))
+                node_id += 1
     
-    # Elements - simplified for visualization
+    # Elements - for head and shank
     output.write("*Element, type=C3D8\n")
     element_id = 1
     
-    # Elements for bolt head (simplified)
+    # Elements for bolt head
     for layer in range(num_head_thickness_elements):
         for i in range(num_circumferential_elements):
             for r in range(int(head_radius / element_size)):
@@ -97,17 +99,22 @@ def generate_bolt_input(head_diameter, head_thickness, shank_diameter, shank_len
                 output.write(f"{element_id}, {n1}, {n2}, {n3}, {n4}, {n5}, {n6}, {n7}, {n8}\n")
                 element_id += 1
     
-    # Elements for bolt shank (simplified)
-    for layer in range(num_shank_length_elements):
+    # Elements for bolt shank (properly modeled with interior)
+    for length_layer in range(num_shank_length_elements):
         for i in range(num_circumferential_elements):
-            # Define simplified cylindrical elements
-            n1 = nodes.get((layer + num_head_thickness_elements, i, 0), 1)
-            n2 = nodes.get((layer + num_head_thickness_elements, i+1, 0), 1)
-            n3 = nodes.get((layer + num_head_thickness_elements + 1, i+1, 0), 1)
-            n4 = nodes.get((layer + num_head_thickness_elements + 1, i, 0), 1)
-            
-            output.write(f"{element_id}, {n1}, {n2}, {n3}, {n4}, {n1}, {n2}, {n3}, {n4}\n")
-            element_id += 1
+            for r in range(int(shank_radius / element_size)):
+                # Define the 8 nodes for each hexahedral element in the shank
+                n1 = nodes.get(('shank', length_layer, i, r), 1)
+                n2 = nodes.get(('shank', length_layer, i+1, r), 1)
+                n3 = nodes.get(('shank', length_layer, i+1, r+1), 1)
+                n4 = nodes.get(('shank', length_layer, i, r+1), 1)
+                n5 = nodes.get(('shank', length_layer+1, i, r), 1)
+                n6 = nodes.get(('shank', length_layer+1, i+1, r), 1)
+                n7 = nodes.get(('shank', length_layer+1, i+1, r+1), 1)
+                n8 = nodes.get(('shank', length_layer+1, i, r+1), 1)
+                
+                output.write(f"{element_id}, {n1}, {n2}, {n3}, {n4}, {n5}, {n6}, {n7}, {n8}\n")
+                element_id += 1
     
     # Complete the Abaqus input file
     output.write("*End Part\n\n")
@@ -130,24 +137,25 @@ def generate_bolt_input(head_diameter, head_thickness, shank_diameter, shank_len
     
     return inp_content, byte_data, node_coordinates
 
-def visualize_bolt(node_coordinates, head_diameter, head_thickness, shank_diameter, shank_length):
+def visualize_bolt(node_coordinates, head_diameter, head_thickness, shank_diameter, shank_length, thread_length):
     # Extract coordinates
-    x_vals, y_vals, z_vals = zip(*node_coordinates)
+    x_vals, y_vals, z_vals = zip(*node_coordinates) if node_coordinates else ([], [], [])
     
     # Create the figure
     fig = go.Figure()
     
-    # Add points for the nodes
-    fig.add_trace(go.Scatter3d(
-        x=x_vals, y=y_vals, z=z_vals,
-        mode='markers',
-        marker=dict(
-            size=2,
-            color=z_vals,
-            colorscale='Viridis',
-        ),
-        showlegend=False
-    ))
+    if node_coordinates:
+        # Add points for the nodes
+        fig.add_trace(go.Scatter3d(
+            x=x_vals, y=y_vals, z=z_vals,
+            mode='markers',
+            marker=dict(
+                size=2,
+                color=z_vals,
+                colorscale='Viridis',
+            ),
+            showlegend=False
+        ))
     
     # Create bolt head cylinder
     head_radius = head_diameter / 2
@@ -203,7 +211,6 @@ def visualize_bolt(node_coordinates, head_diameter, head_thickness, shank_diamet
     # Add threads visualization (simplified)
     if thread_length > 0:
         thread_start = -shank_length + thread_length
-        z_thread = np.linspace(thread_start, -shank_length, 50)
         
         # Create a spiral
         theta_thread = np.linspace(0, 10*np.pi, 100)
@@ -272,7 +279,7 @@ if st.sidebar.button("Generate Bolt Model"):
 
         with col2:
             st.subheader("Bolt Visualization")
-            fig = visualize_bolt(node_coordinates, head_diameter, head_thickness, shank_diameter, shank_length)
+            fig = visualize_bolt(node_coordinates, head_diameter, head_thickness, shank_diameter, shank_length, thread_length)
             st.plotly_chart(fig)
 
         # Display bolt specifications
@@ -291,7 +298,6 @@ if st.sidebar.button("Generate Bolt Model"):
 else:
     # Show sample visualization when app first loads
     st.subheader("Bolt Visualization Preview")
-    sample_nodes = [(0, 0, 0)]  # Placeholder
-    fig = visualize_bolt(sample_nodes, 20.0, 8.0, 12.0, 40.0)
+    fig = visualize_bolt([], 20.0, 8.0, 12.0, 40.0, 25.0)
     st.plotly_chart(fig)
     st.info("Click 'Generate Bolt Model' to create the Abaqus input file.")
