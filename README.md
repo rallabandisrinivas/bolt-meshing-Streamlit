@@ -1,7 +1,7 @@
 🚀 Overview
 This project provides a Streamlit-based application to generate 3D bolt models for Abaqus Finite Element Analysis (FEA). The tool allows users to customize bolt dimensions and automatically creates an .inp file for Abaqus simulations. It also includes an interactive 3D visualization of the generated bolt geometry.
 
-🎓 Inspired by
+🎓 Inspiration from ?
 This work is inspired by the Pressure Vessel Model by Ishita Chakraborty, PhD. Her contributions to FEA modeling have been instrumental in shaping this project.
 
 ✨ Features
